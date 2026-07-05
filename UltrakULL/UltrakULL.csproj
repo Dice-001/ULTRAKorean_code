@@ -264,9 +264,6 @@
     <ItemGroup>
       <!-- Main font asset -->
       <_FontRoot Include="$(ProjectDir)fonts\ullfont.resource" />
-
-      <!-- arabfonts asset -->
-      <_ArabicFonts Include="$(ProjectDir)fonts\arabfonts" />
     </ItemGroup>
 
     <!-- copy main font asset -->
@@ -274,10 +271,6 @@
           DestinationFolder="$(TargetDir)plugins\UltrakULL"
           SkipUnchangedFiles="false" />
 
-    <!-- copy arabic font assets with structure preservation -->
-    <Copy SourceFiles="@(_ArabicFonts)"
-          DestinationFolder="$(TargetDir)plugins\UltrakULL\arabfonts"
-          SkipUnchangedFiles="false" />
 </Target>
 
 </Project>

@@ -1,14 +1,14 @@
-﻿using System;
+﻿using ArabicSupportUnity;
+using BepInEx;
+using BepInEx.Configuration;
+using BepInEx.Logging;
+using Newtonsoft.Json;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using System.Text;
-using ArabicSupportUnity;
-using BepInEx;
-using BepInEx.Configuration;
-using BepInEx.Logging;
-using Newtonsoft.Json;
 using UltrakULL.audio;
 using UltrakULL.Harmony_Patches;
 using UnityEngine.SceneManagement;
@@ -35,26 +35,31 @@ namespace UltrakULL.json
 
             configFile = new ConfigFile(Path.Combine(Paths.ConfigPath, "ultrakull", "lastLang.cfg"), true);
 
-            string value = configFile.Bind("General", "LastLanguage", "en-GB").Value;
+            string value = configFile.Bind("General", "LastLanguage", "ko-KR").Value;
             string dubValue = configFile.Bind("General", "activeDubbing", "False").Value;
 
             if (allLanguages.ContainsKey(value))
             {
                 jsonLogger.Log(LogLevel.Message, "Setting language to " + value);
+
                 CurrentLanguage = CloneLanguage(allLanguages[value]);
+
                 if (IsRightToLeft)
                 {
                     Logging.Message("Language is set as RTL - applying fix!");
                     CurrentLanguage = ApplyRtl(CurrentLanguage);
                 }
             }
+            else if (allLanguages.ContainsKey("ko-KR"))
+            {
+                Logging.Warn("Requested language missing, falling back to ko-KR");
+
+                CurrentLanguage = CloneLanguage(allLanguages["ko-KR"]);
+                SetCurrentLanguage("ko-KR");
+            }
             else
             {
-                jsonLogger.Log(LogLevel.Message, "Previous lang file is missing from disk: " + value);
-                Logging.Warn("Setting language back to en-GB to avoid problems");
-                Core.wasLanguageReset = true;
-                CurrentLanguage = allLanguages["en-GB"];
-                SetCurrentLanguage("en-GB");
+                Logging.Error("No valid language files found!");
             }
 
             LoadSubtitledSourcesConfig();
@@ -62,7 +67,7 @@ namespace UltrakULL.json
 
         public static void DumpLastLanguage()
         {
-            configFile.Bind("General", "LastLanguage", "en-GB").Value = CurrentLanguage.metadata.langName; // Thank you copilot
+            configFile.Bind("General", "LastLanguage", "ko-KR").Value = CurrentLanguage.metadata.langName; // Thank you copilot
         }
 
         public static void LoadLanguagesInDirectory(string path)
@@ -413,7 +418,6 @@ namespace UltrakULL.json
                 }
 
                 // Reload custom fonts for the new language
-                Core.ReloadCustomFonts();
                 TextMeshProFontSwap.ClearFontSwapCache();
 
                 AudioSwapper.SpeechFolder = Path.Combine(Paths.ConfigPath, "ultrakull", "audio", CurrentLanguage.metadata.langName) + Path.DirectorySeparatorChar;
@@ -426,7 +430,6 @@ namespace UltrakULL.json
                 DumpLastLanguage();
 
                 //Patch some leftover components that aren't caught in the main change wave...
-                InjectLanguageButton.updateLanguageButtonText();
                 LoadingTextPatch.updateLoadingText();
 
                 if (GetCurrentSceneName() != "Main Menu")

@@ -70,7 +70,7 @@ namespace UltrakULL.Harmony_Patches
 			if (baseMaterial == null && currentMaterial == null)
 				return;
 
-            bool needsUniqueMaterial = isUnderlaid || preserveExistingUnderlay || editOverlayStatus;
+            bool needsUniqueMaterial = isUnderlaid || editOverlayStatus;
 
             if (!needsUniqueMaterial)
             {

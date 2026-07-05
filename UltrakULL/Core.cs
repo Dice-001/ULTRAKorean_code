@@ -1,22 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using Newtonsoft.Json;
+using System;
 using System.IO;
+using System.Net.Http;
+using System.Threading.Tasks;
+using TMPro;
+using UltrakULL.Harmony_Patches;
+using UltrakULL.json;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using System.Net.Http;
-using System.Threading.Tasks;
-using HarmonyLib;
-using Newtonsoft.Json;
-using TMPro;
-using UnityEngine.TextCore;
-using UnityEngine.TextCore.LowLevel;
-using UltrakULL.Harmony_Patches;
-using UltrakULL.json;
 using static UltrakULL.CommonFunctions;
-using System.Linq;
-using BepInEx;
-using BepInEx.Configuration;
 
 namespace UltrakULL
 {
@@ -24,9 +17,6 @@ namespace UltrakULL
     {
         public static Font VcrFont;
         public static GameObject ultrakullLogo = null;
-
-        public static volatile bool updateAvailable;
-        public static volatile bool updateFailed;
         
         public static bool GlobalFontReady;
         public static bool TMPFontReady;
@@ -38,7 +28,7 @@ namespace UltrakULL
         public static TMP_FontAsset CJKFontTMP;
         public static TMP_FontAsset JaFontTMP;
         public static TMP_FontAsset ArabicFontTMP;
-  public static TMP_FontAsset HebrewFontTMP;
+        public static TMP_FontAsset HebrewFontTMP;
         public static Material GlobalFontTMPOverlayMat;
         public static Material CJKFontTMPOverlayMat;
         public static Material jaFontTMPOverlayMat;
@@ -62,100 +52,12 @@ namespace UltrakULL
 
 		public static bool wasLanguageReset = false;
         
-        private static readonly HttpClient Client = new HttpClient();
-        
         //Encapsulation function to patch all of the front end.
         public static void PatchFrontEnd(GameObject frontEnd)
         {
             MainMenu.Patch(frontEnd);
             Options options = new Options(ref frontEnd);
         }
-
-        public static async Task CheckForUpdates()
-        {
-            string rssUrl = "https://github.com/ClearwaterUK/UltrakULL/releases.atom";
-            // Increase timeout to 10 seconds for better reliability
-            Client.Timeout = TimeSpan.FromSeconds(10);
-            // Add User-Agent header to avoid being blocked by GitHub
-            if (!Client.DefaultRequestHeaders.Contains("User-Agent"))
-            {
-                Client.DefaultRequestHeaders.Add("User-Agent", "UltrakULL-Update-Checker/1.0");
-            }
-
-            try
-            {
-                string rssContent = await Client.GetStringAsync(rssUrl);
-                var doc = new System.Xml.XmlDocument();
-                doc.LoadXml(rssContent);
-
-                // Create namespace manager for Atom
-                var nsManager = new System.Xml.XmlNamespaceManager(doc.NameTable);
-                nsManager.AddNamespace("atom", "http://www.w3.org/2005/Atom");
-
-                // Get latest release entry using namespace
-                var latest = doc.SelectSingleNode("//atom:entry[1]", nsManager);
-                if (latest == null)
-                    throw new Exception("No releases found in RSS feed");
-
-                string title = latest.SelectSingleNode("atom:title", nsManager)?.InnerText ?? "";
-                string updated = latest.SelectSingleNode("atom:updated", nsManager)?.InnerText ?? "";
-
-                // Parse version from title (usually the tag)
-                string versionString = title.TrimStart('v', 'V');
-                // Remove any suffix after hyphen (e.g., "-beta.2") or plus (e.g., "+build")
-                int hyphenIndex = versionString.IndexOf('-');
-                if (hyphenIndex >= 0)
-                    versionString = versionString.Substring(0, hyphenIndex);
-                int plusIndex = versionString.IndexOf('+');
-                if (plusIndex >= 0)
-                    versionString = versionString.Substring(0, plusIndex);
-                // Ensure version string is valid for Version class
-                Logging.Message("Latest version from RSS (cleaned): " + versionString);
-                Logging.Message("Current local version: " + MainPatch.GetVersion());
-
-                Version onlineVersion = new Version(versionString);
-                // Clean local version similarly
-                string localVersionString = MainPatch.GetVersion();
-                localVersionString = localVersionString.TrimStart('v', 'V');
-                hyphenIndex = localVersionString.IndexOf('-');
-                if (hyphenIndex >= 0)
-                    localVersionString = localVersionString.Substring(0, hyphenIndex);
-                plusIndex = localVersionString.IndexOf('+');
-                if (plusIndex >= 0)
-                    localVersionString = localVersionString.Substring(0, plusIndex);
-                Version localVersion = new Version(localVersionString);
-
-                // Simple version compare - update available if online version is newer
-                updateAvailable = localVersion.CompareTo(onlineVersion) < 0;
-
-                if (updateAvailable)
-                    Logging.Warn("UPDATE AVAILABLE!");
-                else
-                    Logging.Message("No newer version detected. Assuming current version is up to date.");
-
-                updateFailed = false;
-            }
-            catch (TaskCanceledException)
-            {
-                Logging.Error("Update check timed out after 10 seconds.");
-                updateAvailable = false;
-                updateFailed = true;
-            }
-            catch (HttpRequestException hre)
-            {
-                Logging.Error("Network error while checking for updates: " + hre.Message);
-                updateAvailable = false;
-                updateFailed = true;
-            }
-            catch (Exception e)
-            {
-                Logging.Error("Unable to check for updates via RSS feed.");
-                Logging.Error(e.ToString());
-                updateAvailable = false;
-                updateFailed = true;
-            }
-        }
-
 
         //Patches all text strings in the pause menu.
         public static void PatchPauseMenu(ref GameObject canvasObj)
@@ -231,44 +133,8 @@ namespace UltrakULL
                 Logging.Error(e.ToString());
             }
         }
-        
-        private static string FindFontFile(string directory, string baseName)
-        {
-            if (string.IsNullOrEmpty(baseName))
-            {
-                Logging.Message($"FindFontFile: baseName is null or empty");
-                return null;
-            }
-
-            // Если имя уже содержит расширение, проверим как есть
-            string fullPath = Path.Combine(directory, baseName);
-            Logging.Message($"FindFontFile: checking exact path '{fullPath}'");
-            if (File.Exists(fullPath))
-            {
-                Logging.Message($"FindFontFile: found exact file '{fullPath}'");
-                return fullPath;
-            }
-
-            // Попробуем добавить распространённые расширения шрифтов
-            string[] extensions = { ".ttf", ".otf", ".ttc", ".woff", ".woff2" };
-            foreach (var ext in extensions)
-            {
-                string path = Path.Combine(directory, baseName + ext);
-                Logging.Message($"FindFontFile: checking path '{path}'");
-                if (File.Exists(path))
-                {
-                    Logging.Message($"FindFontFile: found file with extension '{ext}' at '{path}'");
-                    return path;
-                }
-            }
-
-            // Не найдено
-            Logging.Message($"FindFontFile: no file found for '{baseName}' in directory '{directory}'");
-            return null;
-        }
 
         /// <summary>
-        /// Creates a TMP_FontAsset from a font file path.
         /// </summary>
         /// <param name="fontPath">Full path to the font file (TTF, OTF, etc.)</param>
         /// <param name="samplingPointSize">Sampling point size for the font atlas (default 90)</param>
@@ -278,257 +144,50 @@ namespace UltrakULL
         /// <param name="atlasHeight">Height of the atlas texture (default 1024)</param>
         /// <param name="atlasPopulationMode">Atlas population mode (default Dynamic)</param>
         /// <returns>TMP_FontAsset if successful, null otherwise</returns>
-        private static TMP_FontAsset CreateTMPFontFromFile(string fontPath,
-            int samplingPointSize = 90,
-            int padding = 9,
-            GlyphRenderMode renderMode = GlyphRenderMode.SDFAA,
-            int atlasWidth = 1024,
-            int atlasHeight = 1024,
-            AtlasPopulationMode atlasPopulationMode = AtlasPopulationMode.Dynamic)
-        {
-            if (string.IsNullOrEmpty(fontPath) || !File.Exists(fontPath))
-            {
-                Logging.Error($"CreateTMPFontFromFile: font file not found or path empty: {fontPath}");
-                return null;
-            }
-
-            try
-            {
-                // Load Unity Font from file
-                Font unityFont = new Font(fontPath);
-                if (unityFont == null)
-                {
-                    Logging.Error($"CreateTMPFontFromFile: failed to create Unity Font from {fontPath}");
-                    return null;
-                }
-
-                Logging.Message($"CreateTMPFontFromFile: creating TMP font asset from {Path.GetFileName(fontPath)}");
-                TMP_FontAsset tmpFont = TMP_FontAsset.CreateFontAsset(
-                    unityFont,
-                    samplingPointSize,
-                    padding,
-                    renderMode,
-                    atlasWidth,
-                    atlasHeight,
-                    atlasPopulationMode
-                );
-
-                // If failed, try without parameters (simpler method)
-                if (tmpFont == null)
-                {
-                    Logging.Warn($"CreateTMPFontFromFile: first attempt failed, trying without parameters...");
-                    tmpFont = TMP_FontAsset.CreateFontAsset(unityFont);
-                }
-
-                if (tmpFont == null)
-                {
-                    Logging.Error($"CreateTMPFontFromFile: TMP_FontAsset.CreateFontAsset returned null for {fontPath}");
-                    return null;
-                }
-
-                Logging.Message($"CreateTMPFontFromFile: successfully created TMP font asset '{tmpFont.name}'");
-                return tmpFont;
-            }
-            catch (Exception e)
-            {
-                Logging.Error($"CreateTMPFontFromFile: exception while processing {fontPath}: {e.Message}");
-                Logging.Error(e.ToString());
-                return null;
-            }
-        }
-
-        public static void LoadCustomFonts()
-        {
-            // Reset custom font fields before loading
-            CustomMainFontTMP = null;
-            CustomMuseumFontTMP = null;
-            CustomTerminalFontTMP = null;
-            CustomSecretTerminalFontTMP = null;
-            CustomMainFontTMPOverlayMat = null;
-            CustomMuseumFontTMPOverlayMat = null;
-            CustomTerminalFontTMPOverlayMat = null;
-            CustomSecretTerminalFontTMPOverlayMat = null;
-
-            if (LanguageManager.CurrentLanguage?.metadata?.fonts == null)
-            {
-                Logging.Message("No custom fonts defined in language metadata.");
-                return;
-            }
-
-            var fonts = LanguageManager.CurrentLanguage.metadata.fonts;
-            
-            // Debug log font fields
-            Logging.Message($"Custom font fields - MainFont: '{fonts.MainFont}', MuseumFont: '{fonts.MuseumFont}', TerminalFont: '{fonts.TerminalFont}', SecretTerminalFont: '{fonts.SecretTerminalFont}'");
-            
-            // Check if any font field is non-empty
-            if (string.IsNullOrEmpty(fonts.MainFont) &&
-                string.IsNullOrEmpty(fonts.MuseumFont) &&
-                string.IsNullOrEmpty(fonts.TerminalFont) &&
-                string.IsNullOrEmpty(fonts.SecretTerminalFont))
-            {
-                Logging.Message("All custom font fields are empty, skipping custom font loading.");
-                return;
-            }
-
-            string langName = LanguageManager.CurrentLanguage.metadata.langName;
-            string fontsPath = Path.Combine(Paths.ConfigPath, "ultrakull", "fonts", langName);
-            
-            Logging.Message($"Custom fonts directory path: {fontsPath}");
-            if (!Directory.Exists(fontsPath))
-            {
-                Logging.Message($"Custom fonts directory not found: {fontsPath}");
-                return;
-            }
-
-            Logging.Message($"Loading custom fonts from: {fontsPath}");
-
-            // Load MainFont
-            if (!string.IsNullOrEmpty(fonts.MainFont))
-            {
-                Logging.Message($"Attempting to load MainFont: '{fonts.MainFont}'");
-                string mainFontPath = FindFontFile(fontsPath, fonts.MainFont);
-                if (mainFontPath != null)
-                {
-                    Logging.Message($"Found MainFont file at: {mainFontPath}");
-                    TMP_FontAsset tmpFont = CreateTMPFontFromFile(mainFontPath);
-                    if (tmpFont != null)
-                    {
-                        CustomMainFontTMP = tmpFont;
-                        // Create overlay material for this font
-                        if (GlobalFontTMPOverlayMat != null)
-                        {
-                            CustomMainFontTMPOverlayMat = new Material(GlobalFontTMPOverlayMat);
-                            CustomMainFontTMPOverlayMat.name = $"{tmpFont.name}_Overlay";
-                            Logging.Message($"Created overlay material for MainFont: {CustomMainFontTMPOverlayMat.name}");
-                        }
-                        else
-                        {
-                            Logging.Warn("GlobalFontTMPOverlayMat is null, cannot create overlay material for MainFont");
-                        }
-                        Logging.Message($"Loaded custom MainFont TMP: {fonts.MainFont} (from {Path.GetFileName(mainFontPath)})");
-                    }
-                    else
-                    {
-                        Logging.Error($"CreateTMPFontFromFile returned null for MainFont");
-                    }
-                }
-                else
-                {
-                    Logging.Warn($"Custom MainFont file not found: {fonts.MainFont} (searched with extensions .ttf, .otf, .ttc, .woff, .woff2)");
-                }
-            }
-
-            // Load MuseumFont
-            if (!string.IsNullOrEmpty(fonts.MuseumFont))
-            {
-                string museumFontPath = FindFontFile(fontsPath, fonts.MuseumFont);
-                if (museumFontPath != null)
-                {
-                    TMP_FontAsset tmpFont = CreateTMPFontFromFile(museumFontPath);
-                    if (tmpFont != null)
-                    {
-                        CustomMuseumFontTMP = tmpFont;
-                        // Create overlay material for this font
-                        if (GlobalFontTMPOverlayMat != null)
-                        {
-                            CustomMuseumFontTMPOverlayMat = new Material(GlobalFontTMPOverlayMat);
-                            CustomMuseumFontTMPOverlayMat.name = $"{tmpFont.name}_Overlay";
-                            Logging.Message($"Created overlay material for MuseumFont: {CustomMuseumFontTMPOverlayMat.name}");
-                        }
-                        else
-                        {
-                            Logging.Warn("GlobalFontTMPOverlayMat is null, cannot create overlay material for MuseumFont");
-                        }
-                        Logging.Message($"Loaded custom MuseumFont TMP: {fonts.MuseumFont} (from {Path.GetFileName(museumFontPath)})");
-                    }
-                    else
-                    {
-                        Logging.Error($"CreateTMPFontFromFile returned null for MuseumFont");
-                    }
-                }
-                else
-                {
-                    Logging.Warn($"Custom MuseumFont file not found: {fonts.MuseumFont} (searched with extensions .ttf, .otf, .ttc, .woff, .woff2)");
-                }
-            }
-
-            // Load TerminalFont (optional)
-            if (!string.IsNullOrEmpty(fonts.TerminalFont))
-            {
-                string terminalFontPath = FindFontFile(fontsPath, fonts.TerminalFont);
-                if (terminalFontPath != null)
-                {
-                    TMP_FontAsset tmpFont = CreateTMPFontFromFile(terminalFontPath);
-                    if (tmpFont != null)
-                    {
-                        CustomTerminalFontTMP = tmpFont;
-                        // Create overlay material for this font
-                        if (GlobalFontTMPOverlayMat != null)
-                        {
-                            CustomTerminalFontTMPOverlayMat = new Material(GlobalFontTMPOverlayMat);
-                            CustomTerminalFontTMPOverlayMat.name = $"{tmpFont.name}_Overlay";
-                            Logging.Message($"Created overlay material for TerminalFont: {CustomTerminalFontTMPOverlayMat.name}");
-                        }
-                        else
-                        {
-                            Logging.Warn("GlobalFontTMPOverlayMat is null, cannot create overlay material for TerminalFont");
-                        }
-                        Logging.Message($"Loaded custom TerminalFont TMP: {fonts.TerminalFont} (from {Path.GetFileName(terminalFontPath)})");
-                    }
-                    else
-                    {
-                        Logging.Error($"CreateTMPFontFromFile returned null for TerminalFont");
-                    }
-                    
-                }
-                else
-                {
-                    Logging.Warn($"Custom TerminalFont file not found: {fonts.TerminalFont} (searched with extensions .ttf, .otf, .ttc, .woff, .woff2)");
-                }
-            }
-
-            // Load SecretTerminalFont (optional)
-            if (!string.IsNullOrEmpty(fonts.SecretTerminalFont))
-            {
-                string secretFontPath = FindFontFile(fontsPath, fonts.SecretTerminalFont);
-                if (secretFontPath != null)
-                {
-                    TMP_FontAsset tmpFont = CreateTMPFontFromFile(secretFontPath);
-                    if (tmpFont != null)
-                    {
-                        CustomSecretTerminalFontTMP = tmpFont;
-                        // Create overlay material for this font
-                        if (GlobalFontTMPOverlayMat != null)
-                        {
-                            CustomSecretTerminalFontTMPOverlayMat = new Material(GlobalFontTMPOverlayMat);
-                            CustomSecretTerminalFontTMPOverlayMat.name = $"{tmpFont.name}_Overlay";
-                            Logging.Message($"Created overlay material for SecretTerminalFont: {CustomSecretTerminalFontTMPOverlayMat.name}");
-                        }
-                        else
-                        {
-                            Logging.Warn("GlobalFontTMPOverlayMat is null, cannot create overlay material for SecretTerminalFont");
-                        }
-                        Logging.Message($"Loaded custom SecretTerminalFont TMP: {fonts.SecretTerminalFont} (from {Path.GetFileName(secretFontPath)})");
-                    }
-                    else
-                    {
-                        Logging.Error($"CreateTMPFontFromFile returned null for SecretTerminalFont");
-                    }
-                }
-                else
-                {
-                    Logging.Warn($"Custom SecretTerminalFont file not found: {fonts.SecretTerminalFont} (searched with extensions .ttf, .otf, .ttc, .woff, .woff2)");
-                }
-            }
-        }
 
         /// <summary>
         /// Reloads custom fonts based on the current language.
         /// Call this after changing language.
         /// </summary>
-        public static void ReloadCustomFonts()
+
+        private static readonly HttpClient KoreanClient = new HttpClient()
         {
-            LoadCustomFonts();
+            Timeout = TimeSpan.FromSeconds(5)
+        };
+
+        public static async Task InitializeKoreanLanguage()
+        {
+            string url =
+                "https://raw.githubusercontent.com/zer0pacity/ULL-korean/master/ko-kr.json";
+
+            string localPath = Path.Combine(BepInEx.Paths.ConfigPath, "ultrakull", "ko-kr.json");
+
+            Directory.CreateDirectory(Path.GetDirectoryName(localPath));
+
+            try
+            {
+                string remoteJson = await KoreanClient.GetStringAsync(url);
+
+                if (!File.Exists(localPath) ||
+                    File.ReadAllText(localPath) != remoteJson)
+                {
+                    File.WriteAllText(localPath, remoteJson);
+
+                    Logging.Info("Korean language file updated.");
+                }
+
+                JsonFormat korean =
+                    JsonConvert.DeserializeObject<JsonFormat>(remoteJson);
+
+                LanguageManager.allLanguages["ko-KR"] = korean;
+
+                Logging.Info("Korean language initialized.");
+            }
+            catch (Exception e)
+            {
+                Logging.Error("Failed to initialize Korean language.");
+                Logging.Error(e.ToString());
+            }
         }
 
         public static void LoadFonts()
@@ -536,69 +195,6 @@ namespace UltrakULL
             Logging.Message("Loading font resource bundle...");
             //Will load from the same directory that the dll is in.
             AssetBundle fontBundle = AssetBundle.LoadFromFile(Path.Combine(MainPatch.ModFolder,"ullfont.resource"));
-
-            AssetBundle extraFontBundle = AssetBundle.LoadFromFile(Path.Combine(MainPatch.ModFolder, "arabfonts","arabfonts"));
-
-            if (extraFontBundle == null)
-            {
-                Logging.Error("Failed to load Arabic / Hebrew fonts. :( (No extra AssetBundle found!)");
-            }
-            else
-            {
-                Logging.Message("Extra Fonts Asset Bundle has been loaded...");
-
-                TMP_FontAsset arabicFontAsset = extraFontBundle.LoadAsset<TMP_FontAsset>("segoeui SDF Arabic");
-				TMP_FontAsset hebrewFontAsset = extraFontBundle.LoadAsset<TMP_FontAsset>("segoeui SDF Hebrew");
-				Sprite arabicLogo = extraFontBundle.LoadAsset<Sprite>("2023_improved_logo.png");
-
-                Sprite rankD = extraFontBundle.LoadAsset<Sprite>("RankD.png");
-                Sprite rankC = extraFontBundle.LoadAsset<Sprite>("RankC.png");
-                Sprite rankB = extraFontBundle.LoadAsset<Sprite>("RankB.png");
-                Sprite rankA = extraFontBundle.LoadAsset<Sprite>("RankA.png");
-                Sprite rankS = extraFontBundle.LoadAsset<Sprite>("RankS.png");
-                Sprite rankSS = extraFontBundle.LoadAsset<Sprite>("RankSS.png");
-                Sprite rankSSS = extraFontBundle.LoadAsset<Sprite>("RankSSS.png");
-                Sprite rankU = extraFontBundle.LoadAsset<Sprite>("RankU.png");
-
-                CustomRankImages = new Sprite[8];
-				CustomRankImages[0] = rankD;
-				CustomRankImages[1] = rankC;
-				CustomRankImages[2] = rankB;
-				CustomRankImages[3] = rankA;
-				CustomRankImages[4] = rankS;
-				CustomRankImages[5] = rankSS;
-				CustomRankImages[6] = rankSSS;
-				CustomRankImages[7] = rankU;
-
-				if (arabicFontAsset == null)
-                {
-                    Logging.Warn("There is no Arabic font in this AssetBundle!?");
-                }
-                else
-                {
-                    Logging.Message("Arabic Font has been loaded.");
-                    ArabicFontTMP = arabicFontAsset;
-                }
-
-                if (arabicLogo == null)
-                {
-					Logging.Warn("There is no Arabic logo in this AssetBundle!?");
-				}
-                else
-                {
-                    ArabicUltrakillLogo = arabicLogo;
-                }
-
-				if (hebrewFontAsset == null)
-				{
-					Logging.Warn("There is no Hebrew font in this AssetBundle!?");
-				}
-				else
-				{
-					Logging.Message("Hebrew Font has been loaded.");
-					HebrewFontTMP = hebrewFontAsset;
-				}
-			}
 
 			if (fontBundle == null)
             {
@@ -643,16 +239,40 @@ namespace UltrakULL
                     jaFontTMPOverlayMat = jaFontTMPTopMat;
                     
                     TMPFontReady = true;
+
+                    AssetBundle koreanFontBundle = AssetBundle.LoadFromFile(Path.Combine(MainPatch.ModFolder, "koreanfont"));
+
+                    if (koreanFontBundle == null)
+                    {
+                        Logging.Error("FAILED TO LOAD KOREAN FONT BUNDLE");
+                    }
+                    else
+                    {
+                        CustomMainFontTMP =
+                            koreanFontBundle.LoadAsset<TMP_FontAsset>("mainfont");
+
+                        CustomMuseumFontTMP =
+                            koreanFontBundle.LoadAsset<TMP_FontAsset>("museumfont");
+
+                        CustomTerminalFontTMP =
+                            koreanFontBundle.LoadAsset<TMP_FontAsset>("terminalfont");
+
+                        CustomSecretTerminalFontTMP =
+                            koreanFontBundle.LoadAsset<TMP_FontAsset>("secretterminalfont");
+
+                        CustomMainFontTMPOverlayMat = GlobalFontTMPOverlayMat;
+                        CustomMuseumFontTMPOverlayMat = GlobalFontTMPOverlayMat;
+                        CustomTerminalFontTMPOverlayMat = CJKFontTMPOverlayMat;
+                        CustomSecretTerminalFontTMPOverlayMat = CJKFontTMPOverlayMat;
+
+                        Logging.Message("Korean TMP fonts loaded from koreanfont bundle.");
+                    }
                 }
                 else
                 {
                     Logging.Error("FAILED TO LOAD TMP FONTS");
                     TMPFontReady = false;
                 }
-                
-                // Load custom fonts after standard fonts and materials are ready
-                Logging.Message("Loading custom fonts...");
-                LoadCustomFonts();
             }
         }
         
@@ -734,7 +354,7 @@ namespace UltrakULL
                             panelRect.anchorMax = new Vector2(1, 1);
                             panelRect.pivot = new Vector2(1, 1);
                             panelRect.anchoredPosition = new Vector2(0, -30);
-                            panelRect.sizeDelta = new Vector2(rootRect.sizeDelta.x, updateAvailable ? 170 : 130);
+                            panelRect.sizeDelta = new Vector2(rootRect.sizeDelta.x, 55);
 
                             Image panelBg = panel.AddComponent<Image>();
                             panelBg.color = new Color(0f, 0f, 0f, 0.75f);
@@ -752,41 +372,6 @@ namespace UltrakULL
                             panelText.alignment = TextAlignmentOptions.TopRight;
                             panelText.fontSize = 16;
                             panelText.color = Color.white;
-
-
-                            if (updateAvailable)
-                            {
-                                panelText.text += "\n<color=green>UPDATE AVAILABLE!</color>";
-
-                                GameObject updateLink = new GameObject("UpdateLink", typeof(RectTransform), typeof(TextMeshProUGUI), typeof(Button));
-                                updateLink.transform.SetParent(panel.transform, false);
-
-                                RectTransform linkRect = updateLink.GetComponent<RectTransform>();
-                                linkRect.anchorMin = new Vector2(1, 1);
-                                linkRect.anchorMax = new Vector2(1, 1);
-                                linkRect.pivot = new Vector2(1, 1);
-                                linkRect.anchoredPosition = new Vector2(-5, -90);
-                                linkRect.sizeDelta = new Vector2(150, 24);
-
-                                TextMeshProUGUI linkText = updateLink.GetComponent<TextMeshProUGUI>();
-                                linkText.font = GlobalFontTMP;
-                                linkText.text = "<u><color=white>VIEW UPDATE</color></u>";
-                                linkText.alignment = TextAlignmentOptions.TopRight;
-                                linkText.fontSize = 16;
-                                linkText.raycastTarget = true;
-
-                                Button updateButton = updateLink.GetComponent<Button>();
-                                updateButton.onClick.AddListener(() =>
-                                {
-                                    Application.OpenURL("https://github.com/ClearwaterUK/UltrakULL/releases/latest");
-                                });
-                            }
-
-
-                            if (!updateAvailable && updateFailed)
-                            {
-                                panelText.text += "\n<color=red>Unable to check for updates.\nCheck console for info.</color>";
-                            }
 
                             CanvasGroup panelGroup = panel.AddComponent<CanvasGroup>();
                             panelGroup.alpha = 0f;

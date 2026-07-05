@@ -1,15 +1,14 @@
-﻿using HarmonyLib;
+﻿using BepInEx;
+using HarmonyLib;
 using System;
 using System.IO;
+using System.Reflection;
+using System.Threading.Tasks;
+using UltrakULL.audio;
+using UltrakULL.json;
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using System.Threading.Tasks;
-using UltrakULL.json;
-using BepInEx;
-using BepInEx.Configuration;
-using UltrakULL.audio;
 using static UltrakULL.CommonFunctions;
-using System.Reflection;
 
 /*
  *	UltrakULL (Ultrakill Language Library)
@@ -146,33 +145,22 @@ namespace UltrakULL
 			Core.ApplyPostInitFixes(canvasObj);
 		}
 
-		//Entry point for the mod.
-		private void Awake()
-		{
+        //Entry point for the mod.
+        private async void Awake()
+        {
 			Debug.unityLogger.filterLogType = LogType.Exception;
 
 			Logging.Warn("UltrakULL Loading... | Version v." + InternalVersion);
 			try
 			{
-				Logging.Warn("--- Checking for updates ---");
-				Task.Run(() =>
-				{
-					try
-					{
-						return Core.CheckForUpdates();
-					}
-					catch(Exception e)
-					{
-						Logging.Message($"Failed to read version info! {e.Message}");
-						return null;
-					}
-				});
-				
-				Logging.Warn("--- Initializing language manager ---");
-				LanguageManager.InitializeManager();
-				
-				Logging.Warn("--- Loading external fonts ---");
-				Core.LoadFonts();
+                Logging.Warn("--- Initializing Korean language ---");
+                await Core.InitializeKoreanLanguage();
+
+                Logging.Warn("--- Initializing language manager ---");
+                LanguageManager.InitializeManager();
+
+                Logging.Warn("--- Loading external fonts ---");
+                Core.LoadFonts();
 
                 Logging.Warn("--- Patching vanilla game functions ---");
 				Harmony harmony = new Harmony(InternalName);
