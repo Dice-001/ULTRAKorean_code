@@ -25,54 +25,62 @@ namespace UltrakULL
     private static readonly Dictionary<(GameObject, string), GameObject> childCache = new Dictionary<(GameObject, string), GameObject>();
     private static float lastChildCacheTime = 0f;
 
-    private static readonly Dictionary<string, string> LocalizedInputs = new Dictionary<string, string>()
-		{
-			{ "space", LanguageManager.CurrentLanguage.inputStrings.input_space },
-			{ "enter", LanguageManager.CurrentLanguage.inputStrings.input_enter },
-			{ "tab", LanguageManager.CurrentLanguage.inputStrings.input_tab },
-			{ "escape", LanguageManager.CurrentLanguage.inputStrings.input_esc },
-			{ "leftshift", LanguageManager.CurrentLanguage.inputStrings.input_leftShift },
-			{ "rightshift", LanguageManager.CurrentLanguage.inputStrings.input_rightShift },
-			{ "leftcontrol", LanguageManager.CurrentLanguage.inputStrings.input_leftControl },
-			{ "leftctrl", LanguageManager.CurrentLanguage.inputStrings.input_leftCtrl },
-			{ "rightcontrol", LanguageManager.CurrentLanguage.inputStrings.input_rightControl },
-			{ "rightctrl", LanguageManager.CurrentLanguage.inputStrings.input_rightCtrl },
-			{ "leftalt", LanguageManager.CurrentLanguage.inputStrings.input_leftAlt },
-			{ "rightalt", LanguageManager.CurrentLanguage.inputStrings.input_rightAlt },
-            { "leftmeta", LanguageManager.CurrentLanguage.inputStrings.input_leftMeta },
-            { "rightmeta", LanguageManager.CurrentLanguage.inputStrings.input_rightMeta },
-            { "leftbracket", LanguageManager.CurrentLanguage.inputStrings.input_leftBracket },
-            { "rightbracket", LanguageManager.CurrentLanguage.inputStrings.input_rightBracket },
-            { "lmb", LanguageManager.CurrentLanguage.inputStrings.input_LMB },
-			{ "rmb", LanguageManager.CurrentLanguage.inputStrings.input_RMB },
-			{ "mmb", LanguageManager.CurrentLanguage.inputStrings.input_MMB },
-			{ "uparrow", LanguageManager.CurrentLanguage.inputStrings.input_arrowUp },
-			{ "downarrow", LanguageManager.CurrentLanguage.inputStrings.input_arrowDown },
-			{ "leftarrow", LanguageManager.CurrentLanguage.inputStrings.input_arrowLeft },
-			{ "rightarrow", LanguageManager.CurrentLanguage.inputStrings.input_arrowRight },
-            { "forward", LanguageManager.CurrentLanguage.inputStrings.input_forward },
-            { "back", LanguageManager.CurrentLanguage.inputStrings.input_back },
-            { "comma", LanguageManager.CurrentLanguage.inputStrings.input_comma },
-            { "capslock", LanguageManager.CurrentLanguage.inputStrings.input_capsLock },
-            { "slash", LanguageManager.CurrentLanguage.inputStrings.input_slash },
-            { "backslash", LanguageManager.CurrentLanguage.inputStrings.input_backslash },
-            { "backspace", LanguageManager.CurrentLanguage.inputStrings.input_backspace },
-            { "equals", LanguageManager.CurrentLanguage.inputStrings.input_equals },
-            { "minus", LanguageManager.CurrentLanguage.inputStrings.input_minus },
-            { "numlock", LanguageManager.CurrentLanguage.inputStrings.input_numLock },
-            { "delete", LanguageManager.CurrentLanguage.inputStrings.input_delete },
-            { "period", LanguageManager.CurrentLanguage.inputStrings.input_period },
-            { "semicolon", LanguageManager.CurrentLanguage.inputStrings.input_semicolon },
-            { "quote", LanguageManager.CurrentLanguage.inputStrings.input_quote },
-            { "insert", LanguageManager.CurrentLanguage.inputStrings.input_insert },
-            { "pageup", LanguageManager.CurrentLanguage.inputStrings.input_pageUp },
-            { "pagedown", LanguageManager.CurrentLanguage.inputStrings.input_pageDown },
-            { "start", LanguageManager.CurrentLanguage.inputStrings.input_start },
-            { "end", LanguageManager.CurrentLanguage.inputStrings.input_end },
-            { "scrolllock", LanguageManager.CurrentLanguage.inputStrings.input_scrollLock },
-            { "pause", LanguageManager.CurrentLanguage.inputStrings.input_pause },
-            { "nobinding", LanguageManager.CurrentLanguage.inputStrings.input_noBinding },
-        };
+    private static Dictionary<string, string> LocalizedInputs;
+
+        public static void RefreshLocalizedInputs()
+        {
+            var lang = LanguageManager.CurrentLanguage;
+            if (lang?.inputStrings == null) return;
+
+            LocalizedInputs = new Dictionary<string, string>()
+            {
+                { "space", lang.inputStrings.input_space },
+                { "enter", lang.inputStrings.input_enter },
+                { "tab", lang.inputStrings.input_tab },
+                { "escape", lang.inputStrings.input_esc },
+                { "leftshift", lang.inputStrings.input_leftShift },
+                { "rightshift", lang.inputStrings.input_rightShift },
+                { "leftcontrol", lang.inputStrings.input_leftControl },
+                { "leftctrl", lang.inputStrings.input_leftCtrl },
+                { "rightcontrol", lang.inputStrings.input_rightControl },
+                { "rightctrl", lang.inputStrings.input_rightCtrl },
+                { "leftalt", lang.inputStrings.input_leftAlt },
+                { "rightalt", lang.inputStrings.input_rightAlt },
+                { "leftmeta", lang.inputStrings.input_leftMeta },
+                { "rightmeta", lang.inputStrings.input_rightMeta },
+                { "leftbracket", lang.inputStrings.input_leftBracket },
+                { "rightbracket", lang.inputStrings.input_rightBracket },
+                { "lmb", lang.inputStrings.input_LMB },
+                { "rmb", lang.inputStrings.input_RMB },
+                { "mmb", lang.inputStrings.input_MMB },
+                { "uparrow", lang.inputStrings.input_arrowUp },
+                { "downarrow", lang.inputStrings.input_arrowDown },
+                { "leftarrow", lang.inputStrings.input_arrowLeft },
+                { "rightarrow", lang.inputStrings.input_arrowRight },
+                { "forward", lang.inputStrings.input_forward },
+                { "back", lang.inputStrings.input_back },
+                { "comma", lang.inputStrings.input_comma },
+                { "capslock", lang.inputStrings.input_capsLock },
+                { "slash", lang.inputStrings.input_slash },
+                { "backslash", lang.inputStrings.input_backslash },
+                { "backspace", lang.inputStrings.input_backspace },
+                { "equals", lang.inputStrings.input_equals },
+                { "minus", lang.inputStrings.input_minus },
+                { "numlock", lang.inputStrings.input_numLock },
+                { "delete", lang.inputStrings.input_delete },
+                { "period", lang.inputStrings.input_period },
+                { "semicolon", lang.inputStrings.input_semicolon },
+                { "quote", lang.inputStrings.input_quote },
+                { "insert", lang.inputStrings.input_insert },
+                { "pageup", lang.inputStrings.input_pageUp },
+                { "pagedown", lang.inputStrings.input_pageDown },
+                { "start", lang.inputStrings.input_start },
+                { "end", lang.inputStrings.input_end },
+                { "scrolllock", lang.inputStrings.input_scrollLock },
+                { "pause", lang.inputStrings.input_pause },
+                { "nobinding", lang.inputStrings.input_noBinding },
+            };
+        }
 
         public static string GetLocalizedInput(string input)
         {
@@ -103,16 +111,85 @@ namespace UltrakULL
             if (LocalizedInputs.TryGetValue(key, out string localized))
                 return localized;
 
+            string actionLocalized = GetLocalizedActionName(input);
+            if (!string.IsNullOrEmpty(actionLocalized))
+                return actionLocalized;
+
+            Logging.Warn($"[GetLocalizedInput] Unknown input/action name: '{input}'");
             return input;
         }
 
+        private static string GetLocalizedActionName(string input)
+        {
+            if (string.IsNullOrEmpty(input))
+                return null;
+
+            string normalized = input.Replace(" ", "").Replace("_", "").Replace("-", "").ToUpperInvariant();
+            switch (normalized)
+            {
+                case "CHANGEVARIATION":
+                    return LanguageManager.CurrentLanguage.options.controls_changeVariation;
+                case "NEXTVARIATION":
+                    return LanguageManager.CurrentLanguage.options.controls_nextVariation;
+                case "PREVIOUSVARIATION":
+                    return LanguageManager.CurrentLanguage.options.controls_previousVariation;
+                case "NEXTWEAPON":
+                    return LanguageManager.CurrentLanguage.options.controls_nextWeapon;
+                case "PREVIOUSWEAPON":
+                    return LanguageManager.CurrentLanguage.options.controls_previousWeapon;
+                case "CHANGEFIST":
+                case "CHANGEARM":
+                    return LanguageManager.CurrentLanguage.options.controls_changeFist;
+                case "MOVE":
+                    return LanguageManager.CurrentLanguage.options.controls_move;
+                case "DODGE":
+                    return LanguageManager.CurrentLanguage.options.controls_dodge;
+                case "SLIDE":
+                    return LanguageManager.CurrentLanguage.options.controls_slide;
+                case "JUMP":
+                    return LanguageManager.CurrentLanguage.options.controls_jump;
+                case "PRIMARYFIRE":
+                    return LanguageManager.CurrentLanguage.options.controls_primaryFire;
+                case "SECONDARYFIRE":
+                    return LanguageManager.CurrentLanguage.options.controls_secondaryFire;
+                case "REVOLVER":
+                    return LanguageManager.CurrentLanguage.options.controls_revolver;
+                case "SHOTGUN":
+                    return LanguageManager.CurrentLanguage.options.controls_shotgun;
+                case "NAILGUN":
+                    return LanguageManager.CurrentLanguage.options.controls_nailgun;
+                case "RAILCANNON":
+                    return LanguageManager.CurrentLanguage.options.controls_railcannon;
+                case "ROCKETLAUNCHER":
+                    return LanguageManager.CurrentLanguage.options.controls_rocketLauncher;
+                case "SPAWNERARM":
+                    return LanguageManager.CurrentLanguage.options.controls_spawnerArm;
+                case "LASTUSEDWEAPON":
+                    return LanguageManager.CurrentLanguage.options.controls_lastUsedWeapon;
+                case "VARIATIONSLOT1":
+                    return LanguageManager.CurrentLanguage.options.controls_variationSlot1;
+                case "VARIATIONSLOT2":
+                    return LanguageManager.CurrentLanguage.options.controls_variationSlot2;
+                case "VARIATIONSLOT3":
+                    return LanguageManager.CurrentLanguage.options.controls_variationSlot3;
+                case "PUNCH":
+                    return LanguageManager.CurrentLanguage.options.controls_punch;
+                case "HOOK":
+                    return LanguageManager.CurrentLanguage.options.controls_whiplash;
+                case "STATS":
+                    return LanguageManager.CurrentLanguage.sandbox.sandbox_shop_stats;
+                default:
+                    return null;
+            }
+        }
+
         public static bool isUsingEnglish()
-		{
-			return (LanguageManager.CurrentLanguage.metadata.langDisplayName == "English");
-		}
-		
-		public static ColorBlock UkButtonColors = new ColorBlock()
-		{
+        {
+            return (LanguageManager.CurrentLanguage.metadata.langDisplayName == "English");
+        }
+
+        public static ColorBlock UkButtonColors = new ColorBlock()
+        {
 			normalColor = new Color(0, 0, 0, 0.512f),
 			highlightedColor = new Color(1, 1, 1, 0.502f),
 			pressedColor = new Color(1, 0, 0, 1),

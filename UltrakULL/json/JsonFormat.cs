@@ -2230,6 +2230,7 @@ namespace UltrakULL.json
         public string controls_weaponTitle;
         public string controls_primaryFire;
         public string controls_secondaryFire;
+        public string controls_changeVariation;
         public string controls_nextVariation;
         public string controls_previousVariation;
         public string controls_revolver;
@@ -2316,6 +2317,7 @@ namespace UltrakULL.json
         public string audio_muffleMusic;
         public string audio_dubbing;
         public string audio_dubbing_extra;
+        public string audio_bookAudioDubbing;
 
         public string hud_type;
         public string hud_typeNone;

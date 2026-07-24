@@ -1,5 +1,5 @@
-using HarmonyLib;
 using System;
+using HarmonyLib;
 using TMPro;
 using UltrakULL.audio;
 using UltrakULL.json;
@@ -16,6 +16,9 @@ namespace UltrakULL.Harmony_Patches
         public static void ScanBook_Postfix()
         {
             if (isUsingEnglish()) return;
+
+            bool bookAudioEnabled = Convert.ToBoolean(LanguageManager.configFile.Bind("General", "bookAudioDubbing", "False").Value);
+            if (!bookAudioEnabled) return;
 
             GameObject canvas = GetInactiveRootObject("Canvas");
             if (canvas == null) return;
@@ -366,10 +369,14 @@ namespace UltrakULL.Harmony_Patches
             errorText.alignment = TextAlignmentOptions.Center;
             errorText.color = new Color(1f, 0.3f, 0.3f);
             string errorKey = LanguageManager.CurrentLanguage?.books?.books_audioError;
-            errorText.text = string.IsNullOrEmpty(errorKey)
-                ? "ERROR: IMPOSSIBLE TO BUILD A SPEECH PATTERN"
-                : errorKey;
-
+            if (string.IsNullOrEmpty(errorKey))
+            {
+                errorText.text = "ERROR: IMPOSSIBLE TO BUILD A SPEECH PATTERN";
+            }
+            else
+            {
+                errorText.text = errorKey;
+            }
             errorObj.SetActive(true);
 
             LayoutRebuilder.ForceRebuildLayoutImmediate(rootRect);
@@ -460,6 +467,11 @@ namespace UltrakULL.Harmony_Patches
             BookAudioPlayer.OnResume -= OnPlaybackEvent;
             BookAudioPlayer.OnError -= OnPlaybackEvent;
 
+            RestoreUI();
+        }
+
+        private void RestoreUI()
+        {
             if (scrollRectTransform != null)
             {
                 scrollRectTransform.offsetMin = savedScrollOffsetMin;
@@ -472,6 +484,12 @@ namespace UltrakULL.Harmony_Patches
                 scrollbarTransform.offsetMin = savedScrollbarOffsetMin;
                 scrollbarTransform.offsetMax = savedScrollbarOffsetMax;
             }
+            if (spacer != null)
+            {
+                Destroy(spacer);
+                spacer = null;
+            }
+            uiCreated = false;
         }
 
         private void OnPlaybackEvent()
@@ -483,6 +501,18 @@ namespace UltrakULL.Harmony_Patches
         private void Update()
         {
             if (!uiCreated || !gameObject.activeInHierarchy) return;
+
+            bool bookAudioEnabled = Convert.ToBoolean(LanguageManager.configFile.Bind("General", "bookAudioDubbing", "False").Value);
+            if (!bookAudioEnabled)
+            {
+                if (controlsRoot != null && controlsRoot.activeSelf)
+                {
+                    BookAudioPlayer.Stop();
+                    RestoreUI();
+                    controlsRoot.SetActive(false);
+                }
+                return;
+            }
 
             bool gamePaused = MonoSingleton<OptionsManager>.Instance != null &&
                               MonoSingleton<OptionsManager>.Instance.paused;
