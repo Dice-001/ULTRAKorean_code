@@ -150,7 +150,7 @@ namespace UltrakULL
         /// Call this after changing language.
         /// </summary>
 
-        private static readonly HttpClient KoreanClient = new HttpClient()
+        private static readonly HttpClient KoreanClient = new HttpClient(new HttpClientHandler{UseCookies = false})
         {
             Timeout = TimeSpan.FromSeconds(5)
         };
