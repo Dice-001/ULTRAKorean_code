@@ -36,24 +36,34 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
             "glaiveThrow"
         };
 
+        // Stores original (non-localized) clips so they can be restored when dubbing is disabled.
+        // Key: $"{instanceId}:{fieldName}:{index}" for array fields, or $"{instanceId}:{fieldName}" for single fields.
+        private static readonly Dictionary<string, AudioClip> _originalClips = new Dictionary<string, AudioClip>();
+        private static readonly object _originalClipsLock = new object();
+
         [HarmonyPostfix]
         private static void Postfix(PowerVoiceController __instance)
         {
-            if (LanguageManager.configFile.Bind<string>("General", "activeDubbing", "False", (ConfigDescription)null).Value == "False" || CommonFunctions.isUsingEnglish())
-                return;
-
             if (!KnownInstances.Contains(__instance))
                 KnownInstances.Add(__instance);
 
-            AudioSwapper.LogAudioSourceDiagnostics(__instance.GetComponent<AudioSource>(), "PowerVoiceController");
-            // Detailed logging for debugging audio swaps
-            Logging.Info($"[PowerAudioSwap] Processing PowerVoiceController instance {__instance.GetInstanceID()} in scene '{GetCurrentSceneName()}'");
+            bool dubbingEnabled = LanguageManager.configFile.Bind<string>("General", "activeDubbing", "False", (ConfigDescription)null).Value != "False" && !CommonFunctions.isUsingEnglish();
 
-            string powerFolder = Path.Combine(AudioSwapper.SpeechFolder, "power");
-            AudioSwapper.PreloadFolderAsync(powerFolder, () =>
+            AudioSwapper.LogAudioSourceDiagnostics(__instance.GetComponent<AudioSource>(), "PowerVoiceController");
+            Logging.Info($"[PowerAudioSwap] Processing PowerVoiceController instance {__instance.GetInstanceID()} in scene '{GetCurrentSceneName()}' (dubbing={dubbingEnabled})");
+
+            if (dubbingEnabled)
             {
-                RebindPowerClips(__instance);
-            });
+                string powerFolder = Path.Combine(AudioSwapper.SpeechFolder, "power");
+                AudioSwapper.PreloadFolderAsync(powerFolder, () =>
+                {
+                    RebindPowerClips(__instance);
+                });
+            }
+            else
+            {
+                SaveAllOriginals(__instance);
+            }
         }
 
         public static void RebindCachedInstances()
@@ -69,6 +79,188 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
 
                 RebindPowerClips(instance);
             }
+        }
+
+        /// <summary>
+        /// Saves all original clips from all fields on a PowerVoiceController instance.
+        /// Called when dubbing is disabled to ensure originals are captured for later restoration.
+        /// </summary>
+        private static void SaveAllOriginals(PowerVoiceController instance)
+        {
+            if (instance == null) return;
+            int instanceId = instance.GetInstanceID();
+
+            foreach (string fieldName in ArrayFields)
+            {
+                FieldInfo field = typeof(PowerVoiceController).GetField(fieldName, FieldFlags);
+                if (field == null) continue;
+
+                AudioClip[] clips = field.GetValue(instance) as AudioClip[];
+                if (clips == null) continue;
+
+                for (int i = 0; i < clips.Length; i++)
+                {
+                    if (clips[i] != null)
+                        SaveOriginalClip(instanceId, fieldName, i, clips[i]);
+                }
+            }
+
+            FieldInfo fallScreamField = typeof(PowerVoiceController).GetField("fallScream", FieldFlags);
+            if (fallScreamField != null)
+            {
+                AudioClip fallScream = fallScreamField.GetValue(instance) as AudioClip;
+                if (fallScream != null)
+                    SaveOriginalClip(instanceId, "fallScream", fallScream);
+            }
+        }
+
+        /// <summary>
+        /// Saves the original clip before it gets replaced by a localized version.
+        /// </summary>
+        private static void SaveOriginalClip(int instanceId, string fieldName, int index, AudioClip original)
+        {
+            if (original == null) return;
+            string key = $"{instanceId}:{fieldName}:{index}";
+            lock (_originalClipsLock)
+            {
+                if (!_originalClips.ContainsKey(key))
+                {
+                    _originalClips[key] = original;
+                    Logging.Info($"[PowerAudioSwap] Saved original clip '{original.name}' for {key}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Saves the original single-field clip before it gets replaced.
+        /// </summary>
+        private static void SaveOriginalClip(int instanceId, string fieldName, AudioClip original)
+        {
+            if (original == null) return;
+            string key = $"{instanceId}:{fieldName}";
+            lock (_originalClipsLock)
+            {
+                if (!_originalClips.ContainsKey(key))
+                {
+                    _originalClips[key] = original;
+                    Logging.Info($"[PowerAudioSwap] Saved original clip '{original.name}' for {key}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Restores all saved original clips to their respective PowerVoiceController instances.
+        /// Called when dubbing is disabled or English is selected.
+        /// </summary>
+        public static void RestoreOriginalClips()
+        {
+            lock (_originalClipsLock)
+            {
+                if (_originalClips.Count == 0)
+                {
+                    Logging.Info("[PowerAudioSwap] No original clips to restore.");
+                    return;
+                }
+
+                Logging.Info($"[PowerAudioSwap] Restoring {_originalClips.Count} original clip(s)...");
+
+                // Group saved clips by instanceId for efficient restoration
+                var byInstance = new Dictionary<int, Dictionary<string, AudioClip>>();
+                foreach (var kvp in _originalClips)
+                {
+                    string[] parts = kvp.Key.Split(':');
+                    if (parts.Length < 2) continue;
+                    int instanceId = int.Parse(parts[0]);
+                    string fieldKey = parts[1] + (parts.Length >= 3 ? ":" + parts[2] : "");
+
+                    if (!byInstance.ContainsKey(instanceId))
+                        byInstance[instanceId] = new Dictionary<string, AudioClip>();
+                    byInstance[instanceId][fieldKey] = kvp.Value;
+                }
+
+                foreach (var instanceGroup in byInstance)
+                {
+                    // Find the instance by instance ID
+                    PowerVoiceController target = null;
+                    foreach (var known in KnownInstances)
+                    {
+                        if (known != null && known.GetInstanceID() == instanceGroup.Key)
+                        {
+                            target = known;
+                            break;
+                        }
+                    }
+
+                    if (target == null)
+                    {
+                        Logging.Warn($"[PowerAudioSwap] Instance {instanceGroup.Key} no longer exists, skipping.");
+                        continue;
+                    }
+
+                    foreach (var fieldEntry in instanceGroup.Value)
+                    {
+                        string fieldKey = fieldEntry.Key;
+                        AudioClip originalClip = fieldEntry.Value;
+
+                        // Check if it's an array field (format: "fieldName:index") or single field (format: "fieldName")
+                        int colonIndex = fieldKey.IndexOf(':');
+                        if (colonIndex >= 0)
+                        {
+                            // Array field
+                            string fieldName = fieldKey.Substring(0, colonIndex);
+                            int arrayIndex = int.Parse(fieldKey.Substring(colonIndex + 1));
+
+                            FieldInfo field = typeof(PowerVoiceController).GetField(fieldName, FieldFlags);
+                            if (field != null && field.GetValue(target) is AudioClip[] clips && arrayIndex < clips.Length)
+                            {
+                                clips[arrayIndex] = originalClip;
+                                field.SetValue(target, clips);
+                                Logging.Info($"[PowerAudioSwap] Restored original clip '{originalClip.name}' to {fieldName}[{arrayIndex}]");
+                            }
+                        }
+                        else
+                        {
+                            // Single field
+                            FieldInfo field = typeof(PowerVoiceController).GetField(fieldKey, FieldFlags);
+                            if (field != null)
+                            {
+                                field.SetValue(target, originalClip);
+                                Logging.Info($"[PowerAudioSwap] Restored original clip '{originalClip.name}' to {fieldKey}");
+                            }
+                        }
+                    }
+                }
+
+                _originalClips.Clear();
+                Logging.Info("[PowerAudioSwap] All original clips restored and cache cleared.");
+            }
+        }
+
+        /// <summary>
+        /// Re-applies audio swaps to all existing PowerVoiceController instances in the scene.
+        /// Called when the language is changed without reloading the scene.
+        /// If dubbing is disabled or English is selected, restores original clips instead.
+        /// </summary>
+        public static void RebindExistingInstances()
+        {
+            if (LanguageManager.configFile.Bind<string>("General", "activeDubbing", "False", (ConfigDescription)null).Value == "False" || CommonFunctions.isUsingEnglish())
+            {
+                RestoreOriginalClips();
+                return;
+            }
+
+            // First, scan for any PowerVoiceController instances not yet in KnownInstances
+            PowerVoiceController[] allInstances = UnityEngine.Object.FindObjectsOfType<PowerVoiceController>(true);
+            foreach (var instance in allInstances)
+            {
+                if (instance != null && !KnownInstances.Contains(instance))
+                {
+                    KnownInstances.Add(instance);
+                }
+            }
+
+            // Then rebind all known instances
+            RebindCachedInstances();
         }
 
         private static bool ShouldUseScenePreload()
@@ -111,6 +303,8 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
                 return;
             }
 
+            int instanceId = instance.GetInstanceID();
+
             for (int i = 0; i < clips.Length; i++)
             {
                 int index = i;
@@ -121,16 +315,30 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
                     continue;
                 }
 
+                // Save the original clip before attempting replacement, so it can be restored later
+                // when dubbing is disabled or English is selected.
+                SaveOriginalClip(instanceId, fieldName, index, original);
+
                 string path = Path.Combine(folder, original.name);
                 Logging.Info($"[PowerAudioSwap] Attempting to preload clip '{original.name}' from '{path}'.");
                 AudioSwapper.PreloadClipAsync(path, original, delegate (AudioClip newClip)
                 {
                     if (newClip != null)
                     {
-                        Logging.Info($"[PowerAudioSwap] Successfully preloaded localized clip '{newClip.name}' for field '{fieldName}'.");
-                        clips[index] = newClip;
-                        field.SetValue(instance, clips);
-                        UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        // Only register as handled if the clip was actually replaced with a different (localized) clip.
+                        // When using English or a language without dubbing, PreloadClipAsync returns the original clip
+                        // as fallback. Registering the original clip as handled would suppress its playback.
+                        if (newClip != original)
+                        {
+                            Logging.Info($"[PowerAudioSwap] Successfully preloaded localized clip '{newClip.name}' for field '{fieldName}'.");
+                            clips[index] = newClip;
+                            field.SetValue(instance, clips);
+                            UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        }
+                        else
+                        {
+                            Logging.Info($"[PowerAudioSwap] No localized clip found for '{original.name}' in field '{fieldName}'. Keeping original.");
+                        }
                     }
                     else
                     {
@@ -156,15 +364,26 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
                 return;
             }
 
+            // Save the original clip before attempting replacement.
+            SaveOriginalClip(instance.GetInstanceID(), fieldName, original);
+
             string fullPath = Path.Combine(folder, replacementName);
             Logging.Info($"[PowerAudioSwap] Attempting to preload single clip '{original.name}' from '{fullPath}'.");
             AudioSwapper.PreloadClipAsync(fullPath, original, delegate (AudioClip newClip)
             {
                 if (newClip != null)
                 {
-                    Logging.Info($"[PowerAudioSwap] Successfully replaced '{fieldName}' with localized clip '{newClip.name}'.");
-                    try { field.SetValue(instance, newClip); } catch { }
-                    UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                    // Only register as handled if the clip was actually replaced with a different (localized) clip.
+                    if (newClip != original)
+                    {
+                        Logging.Info($"[PowerAudioSwap] Successfully replaced '{fieldName}' with localized clip '{newClip.name}'.");
+                        try { field.SetValue(instance, newClip); } catch { }
+                        UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                    }
+                    else
+                    {
+                        Logging.Info($"[PowerAudioSwap] No localized clip found for '{fieldName}'. Keeping original.");
+                    }
                 }
                 else
                 {
@@ -180,13 +399,163 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
         private static readonly BindingFlags fieldFlags = BindingFlags.NonPublic | BindingFlags.Instance;
         private static bool wasPerformedIntro = false;
 
+        private static readonly Dictionary<int, AudioClip> _savedIntroOverrides = new Dictionary<int, AudioClip>();
+        private static readonly Dictionary<int, AudioClip[]> _savedRepeatedIntroClips = new Dictionary<int, AudioClip[]>();
+        private static readonly object _introLock = new object();
+
+        private static void SaveIntroOriginals(PowerIntro instance)
+        {
+            if (instance == null) return;
+            int id = instance.GetInstanceID();
+
+            FieldInfo introOverrideField = typeof(PowerIntro).GetField("introOverride", fieldFlags);
+            if (introOverrideField != null)
+            {
+                AudioClip introOverride = (AudioClip)introOverrideField.GetValue(instance);
+                if (introOverride != null && !_savedIntroOverrides.ContainsKey(id))
+                {
+                    _savedIntroOverrides[id] = introOverride;
+                    Logging.Info($"[PowerIntroSwap] Saved original introOverride '{introOverride.name}' for instance {id}");
+                }
+            }
+
+            FieldInfo persistentDataField = typeof(PowerIntro).GetField("persistentData", fieldFlags);
+            PowerPersistentData persistentData = (PowerPersistentData)persistentDataField.GetValue(instance);
+            if (persistentData?.RepeatedIntroClips != null && persistentData.RepeatedIntroClips.Length > 0 && !_savedRepeatedIntroClips.ContainsKey(id))
+            {
+                _savedRepeatedIntroClips[id] = (AudioClip[])persistentData.RepeatedIntroClips.Clone();
+                Logging.Info($"[PowerIntroSwap] Saved {persistentData.RepeatedIntroClips.Length} original RepeatedIntroClips for instance {id}");
+            }
+        }
+
+        public static void RestoreOriginals()
+        {
+            lock (_introLock)
+            {
+                if (_savedIntroOverrides.Count == 0 && _savedRepeatedIntroClips.Count == 0)
+                {
+                    Logging.Info("[PowerIntroSwap] No original clips to restore.");
+                    return;
+                }
+
+                PowerIntro[] instances = UnityEngine.Object.FindObjectsOfType<PowerIntro>(true);
+                foreach (var instance in instances)
+                {
+                    if (instance == null) continue;
+                    int id = instance.GetInstanceID();
+
+                    if (_savedIntroOverrides.TryGetValue(id, out AudioClip savedOverride))
+                    {
+                        FieldInfo introOverrideField = typeof(PowerIntro).GetField("introOverride", fieldFlags);
+                        if (introOverrideField != null)
+                        {
+                            introOverrideField.SetValue(instance, savedOverride);
+                            Logging.Info($"[PowerIntroSwap] Restored introOverride '{savedOverride.name}' for instance {id}");
+                        }
+                    }
+
+                    if (_savedRepeatedIntroClips.TryGetValue(id, out AudioClip[] savedClips))
+                    {
+                        FieldInfo persistentDataField = typeof(PowerIntro).GetField("persistentData", fieldFlags);
+                        PowerPersistentData persistentData = (PowerPersistentData)persistentDataField.GetValue(instance);
+                        if (persistentData?.RepeatedIntroClips != null && persistentData.RepeatedIntroClips.Length == savedClips.Length)
+                        {
+                            Array.Copy(savedClips, persistentData.RepeatedIntroClips, savedClips.Length);
+                            Logging.Info($"[PowerIntroSwap] Restored {savedClips.Length} RepeatedIntroClips for instance {id}");
+                        }
+                    }
+                }
+
+                _savedIntroOverrides.Clear();
+                _savedRepeatedIntroClips.Clear();
+                Logging.Info("[PowerIntroSwap] All original clips restored and cache cleared.");
+            }
+        }
+
+        public static void RebindExistingInstances()
+        {
+            if (LanguageManager.configFile.Bind<string>("General", "activeDubbing", "False", (ConfigDescription)null).Value == "False" || CommonFunctions.isUsingEnglish())
+            {
+                RestoreOriginals();
+                return;
+            }
+
+            PowerIntro[] instances = UnityEngine.Object.FindObjectsOfType<PowerIntro>(true);
+            foreach (var instance in instances)
+            {
+                if (instance == null) continue;
+                AudioPreloadManager.EnsureCurrentScenePreloaded(delegate
+                {
+                    ApplyIntroSwap(instance);
+                });
+            }
+        }
+
+        private static void ApplyIntroSwap(PowerIntro __instance)
+        {
+            if (__instance == null) return;
+
+            FieldInfo introOverrideField = typeof(PowerIntro).GetField("introOverride", fieldFlags);
+            AudioClip introOverride = (AudioClip)introOverrideField.GetValue(__instance);
+
+            if (introOverride == null)
+            {
+                Logging.Warn("[PowerIntroSwap] introOverride is null, skipping.");
+                return;
+            }
+
+            string folder = Path.Combine(AudioSwapper.SpeechFolder, "power");
+            string path = Path.Combine(folder, introOverride.name);
+
+            AudioSwapper.PreloadClipAsync(path, introOverride, (AudioClip newClip) =>
+            {
+                if (newClip != null && newClip != introOverride)
+                {
+                    introOverrideField.SetValue(__instance, newClip);
+                    Logging.Warn("PowerIntroSwap: Successfully replaced introOverride with localized version: " + newClip.name);
+                    UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                }
+                else
+                {
+                    Logging.Warn("PowerIntroSwap: No localized clip found for introOverride. Keeping original.");
+                }
+            });
+
+            FieldInfo persistentDataField = typeof(PowerIntro).GetField("persistentData", fieldFlags);
+            PowerPersistentData persistentData = (PowerPersistentData)persistentDataField.GetValue(__instance);
+            if (persistentData?.RepeatedIntroClips != null && persistentData.RepeatedIntroClips.Length > 0)
+            {
+                for (int i = 0; i < persistentData.RepeatedIntroClips.Length; i++)
+                {
+                    AudioClip originalClip = persistentData.RepeatedIntroClips[i];
+                    if (originalClip == null) continue;
+
+                    string clipPath = Path.Combine(folder, originalClip.name);
+                    AudioSwapper.PreloadClipAsync(clipPath, originalClip, (AudioClip newClip) =>
+                    {
+                        if (newClip != null && newClip != originalClip)
+                        {
+                            persistentData.RepeatedIntroClips[i] = newClip;
+                            Logging.Warn($"PowerIntroSwap: Successfully replaced RepeatedIntroClips[{i}] with localized version: " + newClip.name);
+                            UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        }
+                        else
+                        {
+                            Logging.Warn($"PowerIntroSwap: No localized clip found for RepeatedIntroClips[{i}]. Keeping original.");
+                        }
+                    });
+                }
+            }
+        }
+
         [HarmonyPrefix]
         private static void Prefix(PowerIntro __instance)
         {
-            // early return 전에 먼저 세팅
             FieldInfo persistentDataField = typeof(PowerIntro).GetField("persistentData", fieldFlags);
             PowerPersistentData persistentData = (PowerPersistentData)persistentDataField.GetValue(__instance);
             wasPerformedIntro = persistentData != null && persistentData.PerformedIntro && persistentData.RepeatedIntroOverrideClip;
+
+            SaveIntroOriginals(__instance);
 
             if (LanguageManager.configFile.Bind<string>("General", "activeDubbing", "False", (ConfigDescription)null).Value == "False" || CommonFunctions.isUsingEnglish())
                 return;
@@ -220,9 +589,16 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
                     {
                         AudioSwapper.PreloadClipAsync(path, introOverride, (AudioClip newClip) =>
                         {
-                            introOverrideField.SetValue(__instance, newClip);
-                            Logging.Warn("PowerIntro: Successfully replaced introOverride with localized version: " + newClip.name);
-                            UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                            if (newClip != null && newClip != introOverride)
+                            {
+                                introOverrideField.SetValue(__instance, newClip);
+                                Logging.Warn("PowerIntro: Successfully replaced introOverride with localized version: " + newClip.name);
+                                UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                            }
+                            else
+                            {
+                                Logging.Warn("PowerIntro: No localized clip found for introOverride. Keeping original.");
+                            }
                         });
                     }
                     else
@@ -234,9 +610,16 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
                 {
                     AudioSwapper.PreloadClipAsync(path, introOverride, (AudioClip newClip) =>
                     {
-                        introOverrideField.SetValue(__instance, newClip);
-                        Logging.Warn("PowerIntro: Successfully replaced introOverride with localized version: " + newClip.name);
-                        UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        if (newClip != null && newClip != introOverride)
+                        {
+                            introOverrideField.SetValue(__instance, newClip);
+                            Logging.Warn("PowerIntro: Successfully replaced introOverride with localized version: " + newClip.name);
+                            UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        }
+                        else
+                        {
+                            Logging.Warn("PowerIntro: No localized clip found for introOverride. Keeping original.");
+                        }
                     });
                 }
             }
@@ -255,9 +638,16 @@ namespace UltrakULL.Harmony_Patches.AudioSwaps
                     string path = Path.Combine(folder, originalClip.name);
                     AudioSwapper.PreloadClipAsync(path, originalClip, (AudioClip newClip) =>
                     {
-                        persistentData.RepeatedIntroClips[i] = newClip;
-                        Logging.Warn($"PowerIntro: Successfully replaced RepeatedIntroClips[{i}] with localized version: " + newClip.name);
-                        UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        if (newClip != null && newClip != originalClip)
+                        {
+                            persistentData.RepeatedIntroClips[i] = newClip;
+                            Logging.Warn($"PowerIntro: Successfully replaced RepeatedIntroClips[{i}] with localized version: " + newClip.name);
+                            UltrakULL.Harmony_Patches.Subtitles.PowerSubtitlesSwap.RegisterPowerClipAsHandled(newClip.name);
+                        }
+                        else
+                        {
+                            Logging.Warn($"PowerIntro: No localized clip found for RepeatedIntroClips[{i}]. Keeping original.");
+                        }
                     });
                 }
             }
