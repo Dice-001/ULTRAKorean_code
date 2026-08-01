@@ -1,4 +1,5 @@
 ﻿using BepInEx;
+using BepInEx.Configuration;
 using HarmonyLib;
 using System;
 using System.IO;
@@ -153,8 +154,17 @@ namespace UltrakULL
 			Logging.Warn("UltrakULL Loading... | Version v." + InternalVersion);
 			try
 			{
-                Logging.Warn("--- Initializing Korean language ---");
-                await Core.InitializeKoreanLanguage();
+				LanguageManager.configFile = new ConfigFile(Path.Combine(Paths.ConfigPath, "ultrakull", "lastLang.cfg"), true);
+
+                if (LanguageManager.configFile.Bind("General", "manualJson", "False").Value == "False")
+                {
+                    Logging.Warn("--- Initializing Korean language ---");
+                    await Core.InitializeKoreanLanguage();
+                }
+                else
+                {
+                    Logging.Warn("--- Using manual Korean JSON ---");
+                }
 
                 Logging.Warn("--- Initializing language manager ---");
                 LanguageManager.InitializeManager();
